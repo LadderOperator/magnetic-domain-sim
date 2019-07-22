@@ -1,0 +1,146 @@
+# MIF 2.1
+# 2-fold domain wall simulation
+
+set PI [expr {4*atan(1.)}]
+set MU0 [expr {4*$PI*1e-7}]
+
+RandomSeed 1
+
+
+#Set some paramaters
+Parameter cellSize      5e-10
+Parameter totalWidth    2500e-10
+Parameter stepWidth     [expr {$totalWidth/2}]
+Parameter totalHeight   1500e-10
+Parameter subHeight     5e-10
+Parameter stepHeight    5e-10 
+Parameter J0            2.5e-22
+Parameter K0            3.2e-24 
+
+#Divide regions
+Specify Oxs_MultiAtlas:sys2D [subst {
+
+    atlas { Oxs_BoxAtlas:layersFM {
+        name layersFM
+        xrange {$cellSize 
+                [expr {$totalWidth-$cellSize}]}
+        yrange {[expr {$stepHeight+$subHeight}]
+                $totalHeight}
+        zrange {0 $cellSize}
+        }
+    }
+    atlas { Oxs_BoxAtlas:leftStepFM {
+        name leftStepFM
+        xrange {0 $stepWidth}
+        yrange {$subHeight
+                [expr {$stepHeight+$subHeight}]}
+        zrange {0 $cellSize}
+        }
+    }
+    atlas { Oxs_BoxAtlas:rightStepAFM {
+        name rightStepAFM
+        xrange {$stepWidth $totalWidth}
+        yrange {$subHeight 
+                [expr {$stepHeight+$subHeight}]}
+        zrange {0 $cellSize}
+        }
+    }
+    atlas { Oxs_BoxAtlas:leftEdgeFM {
+        name leftEdgeFM
+        xrange {0 $cellSize}
+        yrange {[expr {$stepHeight+$subHeight}] 
+                $totalHeight}
+        zrange {0 $cellSize}
+        }
+    }
+    atlas { Oxs_BoxAtlas:rightEdgeFM {
+        name rightEdgeFM
+        xrange {[expr {$totalWidth-$cellSize}]
+                $totalWidth}
+        yrange {[expr {$stepHeight+$subHeight}]
+                $totalHeight}
+        zrange {0 $cellSize}
+        }
+    }
+    atlas { Oxs_BoxAtlas:subAFM {
+        name subAFM
+        xrange {0 $totalWidth}
+        yrange {0 $subHeight}
+        zrange {0 $cellSize}
+        }
+    }
+}]
+
+#Set meshgrid
+Specify Oxs_RectangularMesh:myMesh [subst {
+  cellsize {$cellSize $cellSize $cellSize}
+  atlas :sys2D
+}]
+
+#Set uniaxialAnisotropy
+Specify Oxs_UniaxialAnisotropy [subst {
+  K1  [expr {$K0/($cellSize)**3}]
+  axis { Oxs_UniformVectorField {
+    norm 1
+    vector {1 0 0}
+  }  }
+}]
+
+#Exchange energy between FM and AFM 
+Specify Oxs_Exchange6Ngbr:exchDef [subst {
+    default_A [expr {$J0/$cellSize}]
+    atlas :sys2D
+    A {
+        layersFM layersFM [expr {$J0/$cellSize}]
+        leftStepFM leftEdgeFM [expr {$J0/$cellSize}]
+        rightStepAFM rightStepAFM [expr {$J0/$cellSize}]
+        leftEdgeFM leftEdgeFM [expr {$J0/$cellSize}]
+        rightEdgeFM rightEdgeFM [expr {$J0/$cellSize}]
+        subAFM subAFM [expr {$J0/$cellSize}]
+
+        leftEdgeFM layersFM [expr {$J0/$cellSize}]
+        leftEdgeFM leftStepFM [expr {$J0/$cellSize}]
+        leftEdgeFM subAFM [expr {$J0/$cellSize}]
+
+        rightEdgeFM layersFM [expr {$J0/$cellSize}]
+        rightEdgeFM rightStepAFM [expr {-$J0/$cellSize}]
+        rightEdgeFM subAFM [expr {-$J0/$cellSize}]
+
+        layersFM rightStepAFM [expr {-$J0/$cellSize}]
+        layersFM leftStepFM [expr {$J0/$cellSize}]
+
+        subAFM rightStepAFM [expr {-$J0/$cellSize}]
+        subAFM leftStepFM [expr {-$J0/$cellSize}]
+    }
+}]
+
+Specify Oxs_Demag {}
+
+Specify Oxs_CGEvolve {
+    fixed_spins {
+        :sys2D
+        leftEdgeFM rightEdgeFM subAFM
+    }
+}
+
+Specify Oxs_MinDriver [subst {
+    evolver Oxs_CGEvolve
+    stopping_mxHxm 0.05
+    mesh :myMesh
+    Ms { 1e5 }
+    m0 { Oxs_AtlasVectorField {
+        atlas :sys2D
+        values {
+            layersFM        { 0.0   1.0  0.0}
+            leftEdgeFM      { 1.0   0.0  0.0}
+            leftStepFM      { 1.0   0.0  0.0}
+            rightEdgeFM     {-1.0   0.0  0.0}
+            rightStepAFM    { 1.0   0.0  0.0}
+            subAFM          {-1.0   0.0  0.0}
+        }
+        norm 1.0
+    }}
+}]
+
+Destination archive mmArchive
+Schedule Oxs_MinDriver::Spin archive Done
